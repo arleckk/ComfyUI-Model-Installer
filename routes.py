@@ -215,7 +215,7 @@ def register_routes():
                 )
 
             current_commit = _get_current_commit()
-            remote_commit = _get_remote_commit("main")
+            remote_commit = _get_remote_commit("master")
 
             if current_commit and remote_commit and current_commit == remote_commit:
                 return web.json_response(

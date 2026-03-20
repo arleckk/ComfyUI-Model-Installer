@@ -1,5 +1,5 @@
 WEB_DIRECTORY = "./js"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.0.2"
 
 from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 from .routes import register_routes

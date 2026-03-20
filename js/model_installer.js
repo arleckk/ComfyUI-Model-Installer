@@ -15,6 +15,8 @@ function el(tag, attrs = {}, children = []) {
         else if (key === "html") node.innerHTML = value;
         else if (key === "style" && typeof value === "object") Object.assign(node.style, value);
         else if (key === "parent") value.appendChild(node);
+        else if (key === "checked") node.checked = !!value;
+        else if (key === "disabled") node.disabled = !!value;
         else node.setAttribute(key, value);
     }
 
@@ -36,9 +38,9 @@ function ensureInlineStyles() {
             position: fixed;
             top: 72px;
             right: 16px;
-            width: 960px;
+            width: 1180px;
             max-width: calc(100vw - 32px);
-            height: 78vh;
+            height: 80vh;
             background: #151515;
             color: #f2f2f2;
             border: 1px solid #333;
@@ -120,6 +122,7 @@ function ensureInlineStyles() {
             padding: 12px 16px;
             border-bottom: 1px solid #2b2b2b;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         .cmi-toolbar button {
@@ -134,6 +137,28 @@ function ensureInlineStyles() {
         .cmi-toolbar button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+        }
+
+        .cmi-toolbar .cmi-danger {
+            background: #4b1f1f;
+            border-color: #7f2d2d;
+        }
+
+        .cmi-toolbar .cmi-danger:hover {
+            background: #622626;
+        }
+
+        .cmi-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #ccc;
+            font-size: 12px;
+            user-select: none;
+        }
+
+        .cmi-toggle input {
+            cursor: pointer;
         }
 
         .cmi-summary {
@@ -170,19 +195,52 @@ function ensureInlineStyles() {
         .cmi-table td:nth-child(2) { width: 250px; word-break: break-word; }
 
         .cmi-table th:nth-child(3),
-        .cmi-table td:nth-child(3) { width: 120px; }
+        .cmi-table td:nth-child(3) { width: 110px; }
 
         .cmi-table th:nth-child(4),
-        .cmi-table td:nth-child(4) { width: 110px; }
+        .cmi-table td:nth-child(4) { width: 100px; }
 
         .cmi-table th:nth-child(5),
-        .cmi-table td:nth-child(5) { width: 140px; }
+        .cmi-table td:nth-child(5) { width: 130px; }
 
         .cmi-table th:nth-child(6),
-        .cmi-table td:nth-child(6) { width: 90px; }
+        .cmi-table td:nth-child(6) { width: 95px; }
 
         .cmi-table th:nth-child(7),
-        .cmi-table td:nth-child(7) { width: auto; word-break: break-word; }
+        .cmi-table td:nth-child(7) { width: 115px; }
+
+        .cmi-table th:nth-child(8),
+        .cmi-table td:nth-child(8) { width: 180px; }
+
+        .cmi-table th:nth-child(9),
+        .cmi-table td:nth-child(9) { width: auto; word-break: break-word; }
+
+        .cmi-progress-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .cmi-progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #262626;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+
+        .cmi-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #22c55e 100%);
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+
+        .cmi-progress-text {
+            font-size: 11px;
+            color: #9aa4b2;
+        }
 
         .cmi-log {
             border-top: 1px solid #2b2b2b;
@@ -261,9 +319,61 @@ function shortCommit(hash) {
     return hash ? hash.slice(0, 7) : "-";
 }
 
+function clampPercent(n) {
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, n));
+}
+
+function getAssetPercent(asset) {
+    const downloaded = Number(asset?.downloaded_bytes || 0);
+    const total = Number(asset?.total_bytes || 0);
+    if (total <= 0) return 0;
+    return clampPercent((downloaded / total) * 100);
+}
+
+function getDownloadedText(asset) {
+    const downloaded = Number(asset?.downloaded_bytes || 0);
+    const total = Number(asset?.total_bytes || 0);
+
+    if (total > 0) {
+        return `${formatBytes(downloaded)} / ${formatBytes(total)}`;
+    }
+
+    if (downloaded > 0) {
+        return formatBytes(downloaded);
+    }
+
+    return "-";
+}
+
 function setVersionText(text) {
     const node = document.getElementById("cmi-version");
     if (node) node.textContent = text;
+}
+
+function getOnlyMissingEnabled() {
+    return !!window.__CMI_ONLY_MISSING__;
+}
+
+function setOnlyMissingEnabled(value) {
+    window.__CMI_ONLY_MISSING__ = !!value;
+    const checkbox = document.getElementById("cmi-only-missing");
+    if (checkbox) checkbox.checked = !!value;
+}
+
+function getCurrentJobId() {
+    return window.__CMI_CURRENT_JOB_ID__ || "";
+}
+
+function setCurrentJobId(jobId) {
+    window.__CMI_CURRENT_JOB_ID__ = jobId || "";
+    updateCancelButtonState();
+}
+
+function updateCancelButtonState() {
+    const btn = document.getElementById("cmi-cancel-job");
+    if (!btn) return;
+    btn.disabled = !getCurrentJobId();
 }
 
 async function refreshPluginVersionInfo() {
@@ -273,7 +383,7 @@ async function refreshPluginVersionInfo() {
         const commit = result.current_commit ? ` (${shortCommit(result.current_commit)})` : "";
         const gitHint = result.git_repo ? "" : " | non-git install";
         setVersionText(`v${version}${commit}${gitHint}`);
-    } catch (error) {
+    } catch {
         setVersionText("version unavailable");
     }
 }
@@ -303,8 +413,24 @@ function makePanel() {
     const toolbar = el("div", { class: "cmi-toolbar" }, [
         el("button", { id: "cmi-scan", type: "button", text: "Scan Workflow" }),
         el("button", { id: "cmi-install-missing", type: "button", text: "Install Missing" }),
+        el("button", { id: "cmi-select-missing", type: "button", text: "Select All Missing" }),
         el("button", { id: "cmi-refresh", type: "button", text: "Refresh" }),
         el("button", { id: "cmi-check-update", type: "button", text: "Check Plugin Update" }),
+        el("button", {
+            id: "cmi-cancel-job",
+            type: "button",
+            class: "cmi-danger",
+            text: "Cancel Current Job",
+            disabled: true,
+        }),
+        el("label", { class: "cmi-toggle" }, [
+            el("input", {
+                id: "cmi-only-missing",
+                type: "checkbox",
+                checked: false,
+            }),
+            el("span", { text: "Only Missing" }),
+        ]),
     ]);
 
     const summary = el("div", { id: "cmi-summary", class: "cmi-summary", text: "No scan yet." });
@@ -321,6 +447,8 @@ function makePanel() {
                 <th>Source</th>
                 <th>Status</th>
                 <th>Size</th>
+                <th>Downloaded</th>
+                <th>Progress</th>
                 <th>Target</th>
             </tr>
         </thead>
@@ -341,12 +469,18 @@ function makePanel() {
 
     panel.querySelector("#cmi-scan")?.addEventListener("click", scanWorkflow);
     panel.querySelector("#cmi-install-missing")?.addEventListener("click", installMissing);
+    panel.querySelector("#cmi-select-missing")?.addEventListener("click", selectAllMissing);
     panel.querySelector("#cmi-refresh")?.addEventListener("click", async () => {
         await refreshPluginVersionInfo();
         await scanWorkflow();
     });
     panel.querySelector("#cmi-check-update")?.addEventListener("click", checkPluginUpdate);
     panel.querySelector("#cmi-update-plugin")?.addEventListener("click", updatePlugin);
+    panel.querySelector("#cmi-cancel-job")?.addEventListener("click", cancelCurrentJob);
+    panel.querySelector("#cmi-only-missing")?.addEventListener("change", (e) => {
+        setOnlyMissingEnabled(e.target.checked);
+        renderAssets(getStoredAssets());
+    });
 
     return panel;
 }
@@ -373,18 +507,51 @@ function setStoredAssets(assets) {
     window.__CMI_ASSETS__ = assets || [];
 }
 
+function selectAllMissing() {
+    const tbody = document.getElementById("cmi-tbody");
+    if (!tbody) return;
+
+    const rows = [...tbody.querySelectorAll("tr")];
+    let count = 0;
+
+    for (const row of rows) {
+        const checkbox = row.querySelector(".cmi-row-check");
+        if (!checkbox) continue;
+
+        try {
+            const asset = JSON.parse(row.dataset.asset);
+            const shouldSelect = asset.status === "missing";
+            checkbox.checked = shouldSelect;
+            if (shouldSelect) count++;
+        } catch {
+            checkbox.checked = false;
+        }
+    }
+
+    setLog(`Selected ${count} missing asset${count === 1 ? "" : "s"}.`);
+}
+
 function renderAssets(assets) {
     const tbody = document.getElementById("cmi-tbody");
     if (!tbody) return;
 
     tbody.innerHTML = "";
 
+    const onlyMissing = getOnlyMissingEnabled();
+
     let installed = 0;
     let missing = 0;
+    let visible = 0;
 
     for (const asset of assets) {
         if (asset.status === "installed" || asset.status === "already_installed") installed++;
         if (asset.status === "missing") missing++;
+
+        if (onlyMissing && asset.status !== "missing" && asset.status !== "downloading") {
+            continue;
+        }
+
+        visible++;
 
         const checkbox = el("input", {
             type: "checkbox",
@@ -393,14 +560,31 @@ function renderAssets(assets) {
         checkbox.checked = asset.status === "missing";
 
         let statusText = asset.status || "";
+        const percent = getAssetPercent(asset);
         if (asset.status === "downloading" && Number(asset.total_bytes || 0) > 0) {
-            const percent = ((Number(asset.downloaded_bytes || 0) / Number(asset.total_bytes || 1)) * 100).toFixed(1);
-            statusText = `${asset.status} (${percent}%)`;
+            statusText = `${asset.status} (${percent.toFixed(1)}%)`;
         }
 
         const sizeText = Number(asset.total_bytes || 0) > 0
             ? formatBytes(asset.total_bytes)
             : "-";
+
+        const downloadedText = getDownloadedText(asset);
+
+        const progressWrap = el("div", { class: "cmi-progress-wrap" }, [
+            el("div", { class: "cmi-progress-bar" }, [
+                el("div", {
+                    class: "cmi-progress-fill",
+                    style: {
+                        width: `${percent}%`,
+                    },
+                }),
+            ]),
+            el("div", {
+                class: "cmi-progress-text",
+                text: Number(asset.total_bytes || 0) > 0 ? `${percent.toFixed(1)}%` : "-",
+            }),
+        ]);
 
         const tr = el("tr", {}, [
             el("td", {}, [checkbox]),
@@ -409,6 +593,8 @@ function renderAssets(assets) {
             el("td", { text: asset.source || "" }),
             el("td", { text: statusText }),
             el("td", { text: sizeText }),
+            el("td", { text: downloadedText }),
+            el("td", {}, [progressWrap]),
             el("td", { title: asset.target_path || "", text: asset.target_path || "" }),
         ]);
 
@@ -416,7 +602,9 @@ function renderAssets(assets) {
         tbody.appendChild(tr);
     }
 
-    setSummary(`Required: ${assets.length} | Installed: ${installed} | Missing: ${missing}`);
+    const filterText = onlyMissing ? ` | Visible: ${visible} (Only Missing)` : ` | Visible: ${visible}`;
+    setSummary(`Required: ${assets.length} | Installed: ${installed} | Missing: ${missing}${filterText}`);
+    updateCancelButtonState();
 }
 
 async function scanWorkflow() {
@@ -460,6 +648,8 @@ function getSelectedAssets() {
 }
 
 async function pollJob(jobId) {
+    setCurrentJobId(jobId);
+
     const maxLoops = 3600;
 
     for (let i = 0; i < maxLoops; i++) {
@@ -505,6 +695,7 @@ async function pollJob(jobId) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
+    setCurrentJobId("");
     await scanWorkflow();
 }
 
@@ -533,7 +724,28 @@ async function installMissing() {
     } catch (error) {
         console.error(error);
         setLog(`Download error: ${error.message}`);
+        setCurrentJobId("");
         openPanel();
+    }
+}
+
+async function cancelCurrentJob() {
+    const jobId = getCurrentJobId();
+    if (!jobId) {
+        setLog("No active job to cancel.");
+        return;
+    }
+
+    try {
+        setLog(`Cancelling job ${jobId}...`);
+        await apiJson("/model-installer/cancel", {
+            method: "POST",
+            body: JSON.stringify({ job_id: jobId }),
+        });
+        setLog("Cancel requested. The current download will stop shortly.");
+    } catch (error) {
+        console.error(error);
+        setLog(`Cancel error: ${error.message}`);
     }
 }
 
@@ -616,7 +828,7 @@ async function installTopBarButton() {
             },
             tooltip: PLUGIN_NAME,
             content: "Model Installer",
-            classList: "comfyui-button comfyui-menu-mobile-collapse"
+            classList: "comfyui-button comfyui-menu-mobile-collapse primary"
         }).element;
 
         const scanButton = new ComfyButton({
@@ -732,6 +944,8 @@ app.registerExtension({
         ensureInlineStyles();
         makePanel();
         await refreshPluginVersionInfo();
+        setOnlyMissingEnabled(false);
+        updateCancelButtonState();
 
         const ok = await installTopBarButton();
         if (!ok) {
