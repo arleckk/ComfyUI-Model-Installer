@@ -154,6 +154,63 @@ Assets can appear as:
 
 ---
 
+## Hugging Face Authentication (`HF_TOKEN`)
+
+Some Hugging Face models are **gated** or require authentication before they can be downloaded.
+
+If a model needs access approval, the plugin may show an error like:
+
+```text
+Hugging Face authentication required or access not granted for this model.
+Set HF_TOKEN or login with 'hf auth login'.
+```
+
+Use this guide to generate an `HF_TOKEN`: https://huggingface.co/docs/hub/security-tokens
+
+### Option 1: Use HF_TOKEN environment variable
+
+Set your Hugging Face token as an environment variable before starting ComfyUI.
+
+Windows PowerShell
+```setx HF_TOKEN “hf_your_token_here”```
+
+After setting it, restart ComfyUI.
+
+Windows CMD
+```setx HF_TOKEN hf_your_token_here```
+
+After setting it, restart ComfyUI.
+
+Linux / macOS
+```export HF_TOKEN=“hf_your_token_here”```
+
+Then start ComfyUI from the same terminal session.
+
+### Option 2: Login with Hugging Face CLI
+
+If you already use the Hugging Face CLI, you can authenticate with:
+
+hf auth login
+
+Then restart ComfyUI.
+
+Important notes
+* Your Hugging Face account must already have access to the gated model repository
+* Setting a token does not automatically grant access to a gated repo
+* If access has not been approved on Hugging Face, downloads will still fail
+* The plugin automatically uses HF_TOKEN for Hugging Face downloads when available
+
+When you need this
+
+You usually only need HF_TOKEN when:
+* the model repo is gated
+* the model repo is private
+* Hugging Face returns 401 Unauthorized
+
+Public Hugging Face models normally work without authentication.
+
+---
+
 ## UI Overview
 
 The plugin adds a **Model Installer** button to the ComfyUI top bar when possible, with fallback to the classic left menu.

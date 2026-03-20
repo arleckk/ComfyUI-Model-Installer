@@ -22,6 +22,14 @@ DOWNLOAD_TIMEOUT = 30
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 
+def debug_log(message: str) -> None:
+    print(f"[CMI installer] {message}")
+
+
+def get_hf_token() -> str:
+    return (os.getenv("HF_TOKEN", "") or "").strip()
+
+
 class InstallManager:
     def __init__(self):
         self._lock = threading.Lock()
@@ -125,6 +133,7 @@ class InstallManager:
                     with self._lock:
                         self._jobs[job_id]["failed_assets"] += 1
             except Exception as e:
+                debug_log(f"job={job_id} asset={asset.get('name','')} error={e}")
                 self._update_asset(job_id, index, status="error", error=str(e))
                 with self._lock:
                     self._jobs[job_id]["failed_assets"] += 1
@@ -172,25 +181,30 @@ class InstallManager:
             self._update_asset(job_id, asset_index, status="already_installed")
             return {"status": "already_installed", "path": str(target_path)}
 
-        if "huggingface.co" in urlparse(url).netloc.lower():
+        domain = urlparse(url).netloc.lower()
+        if "huggingface.co" in domain:
             return self._download_huggingface(job_id, asset_index, asset, target_path, overwrite)
 
         return self._download_direct(job_id, asset_index, asset, target_path, overwrite)
 
-    def _extract_hf_repo_parts(self, url: str) -> tuple[str, str] | None:
+    def _extract_hf_repo_parts(self, url: str) -> tuple[str, str, str] | None:
         """
         Supports URLs like:
         https://huggingface.co/<repo_id>/resolve/main/<path/to/file>
         https://huggingface.co/<repo_id>/blob/main/<path/to/file>
+
+        Returns:
+            (repo_id, revision, filename_in_repo)
         """
         parsed = urlparse(url)
         parts = [p for p in parsed.path.split("/") if p]
-        if len(parts) < 4:
+        if len(parts) < 5:
             return None
 
-        # repo can be org/repo
         repo_id = "/".join(parts[:2])
         mode = parts[2]
+        revision = parts[3]
+
         if mode not in {"resolve", "blob"}:
             return None
 
@@ -198,76 +212,155 @@ class InstallManager:
         if not filename:
             return None
 
-        return repo_id, filename
+        return repo_id, revision, filename
 
     def _download_huggingface(self, job_id: str, asset_index: int, asset: dict, target_path: Path, overwrite: bool) -> dict:
         url = asset["url"]
-        self._update_asset(job_id, asset_index, status="downloading")
+        token = get_hf_token()
+        self._update_asset(job_id, asset_index, status="downloading", downloaded_bytes=0, total_bytes=0)
+
+        debug_log(
+            f"HF download start asset={asset.get('name','')} token={'yes' if token else 'no'} url={url}"
+        )
 
         repo_parts = self._extract_hf_repo_parts(url)
         if repo_parts:
-            repo_id, filename_in_repo = repo_parts
-            downloaded = hf_hub_download(
-                repo_id=repo_id,
-                filename=filename_in_repo,
-                repo_type="model",
-                local_dir=None,
-                local_dir_use_symlinks=False,
+            repo_id, revision, filename_in_repo = repo_parts
+            debug_log(
+                f"HF parsed repo_id={repo_id} revision={revision} filename={filename_in_repo}"
             )
-            source_path = Path(downloaded)
-            temp_path = target_path.with_suffix(target_path.suffix + ".part")
-            if temp_path.exists():
-                temp_path.unlink()
-            # copy from HF cache into temp, then atomic move
-            with source_path.open("rb") as src, temp_path.open("wb") as dst:
-                while True:
-                    chunk = src.read(DOWNLOAD_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    dst.write(chunk)
-                    self._check_cancel(job_id)
-            move_atomic(temp_path, target_path)
-            self._update_asset(job_id, asset_index, status="installed")
-            return {"status": "installed", "path": str(target_path)}
 
-        # fallback to direct streaming for HF if parsing fails
+            try:
+                downloaded = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename_in_repo,
+                    repo_type="model",
+                    revision=revision,
+                    local_dir=None,
+                    token=token if token else None,
+                )
+                source_path = Path(downloaded)
+                temp_path = target_path.with_suffix(target_path.suffix + ".part")
+
+                if temp_path.exists():
+                    temp_path.unlink()
+
+                total_bytes = source_path.stat().st_size if source_path.exists() else 0
+                self._update_asset(job_id, asset_index, total_bytes=total_bytes)
+
+                with source_path.open("rb") as src, temp_path.open("wb") as dst:
+                    copied = 0
+                    while True:
+                        chunk = src.read(DOWNLOAD_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        self._check_cancel(job_id)
+                        dst.write(chunk)
+                        copied += len(chunk)
+                        self._update_asset(
+                            job_id,
+                            asset_index,
+                            downloaded_bytes=copied,
+                            total_bytes=total_bytes,
+                        )
+
+                move_atomic(temp_path, target_path)
+                self._update_asset(job_id, asset_index, status="installed")
+                debug_log(f"HF download installed asset={asset.get('name','')} path={target_path}")
+                return {"status": "installed", "path": str(target_path)}
+
+            except Exception as e:
+                message = str(e)
+                lower_message = message.lower()
+
+                if "401" in lower_message or "unauthorized" in lower_message or "gated" in lower_message:
+                    raise RuntimeError(
+                        "Hugging Face authentication required or access not granted for this model. "
+                        "Set HF_TOKEN or login with 'hf auth login', and make sure your account has access."
+                    )
+
+                debug_log(f"HF hub download failed asset={asset.get('name','')} error={message}")
+                # fallback to direct stream below
+
+        debug_log(f"HF fallback to direct streaming asset={asset.get('name','')}")
         return self._download_direct(job_id, asset_index, asset, target_path, overwrite)
+
+    def _build_request_headers(self, url: str) -> dict:
+        headers = {}
+        token = get_hf_token()
+        domain = urlparse(url).netloc.lower()
+
+        if token and "huggingface.co" in domain:
+            headers["Authorization"] = f"Bearer {token}"
+
+        return headers
 
     def _download_direct(self, job_id: str, asset_index: int, asset: dict, target_path: Path, overwrite: bool) -> dict:
         url = asset["url"]
         temp_path = target_path.with_suffix(target_path.suffix + ".part")
+        headers = self._build_request_headers(url)
 
         if temp_path.exists():
             temp_path.unlink()
 
         self._update_asset(job_id, asset_index, status="downloading", downloaded_bytes=0, total_bytes=0)
 
-        with requests.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT, allow_redirects=True) as response:
-            response.raise_for_status()
+        debug_log(
+            f"direct download start asset={asset.get('name','')} domain={urlparse(url).netloc.lower()} token_auth={'yes' if 'Authorization' in headers else 'no'}"
+        )
 
-            total_bytes = int(response.headers.get("Content-Length", "0") or "0")
-            self._update_asset(job_id, asset_index, total_bytes=total_bytes)
-
-            with temp_path.open("wb") as f:
-                downloaded = 0
-                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
-                    self._check_cancel(job_id)
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    self._update_asset(
-                        job_id,
-                        asset_index,
-                        downloaded_bytes=downloaded,
-                        total_bytes=total_bytes,
+        try:
+            with requests.get(
+                url,
+                stream=True,
+                timeout=DOWNLOAD_TIMEOUT,
+                allow_redirects=True,
+                headers=headers,
+            ) as response:
+                if response.status_code == 401 and "huggingface.co" in urlparse(url).netloc.lower():
+                    raise RuntimeError(
+                        "Hugging Face authentication required or access not granted for this model. "
+                        "Set HF_TOKEN or login with 'hf auth login', and make sure your account has access."
                     )
+
+                response.raise_for_status()
+
+                total_bytes = int(response.headers.get("Content-Length", "0") or "0")
+                self._update_asset(job_id, asset_index, total_bytes=total_bytes)
+
+                with temp_path.open("wb") as f:
+                    downloaded = 0
+                    for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                        self._check_cancel(job_id)
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        self._update_asset(
+                            job_id,
+                            asset_index,
+                            downloaded_bytes=downloaded,
+                            total_bytes=total_bytes,
+                        )
+
+        except requests.HTTPError as e:
+            if "huggingface.co" in urlparse(url).netloc.lower():
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if status_code == 401:
+                    raise RuntimeError(
+                        "Hugging Face authentication required or access not granted for this model. "
+                        "Set HF_TOKEN or login with 'hf auth login', and make sure your account has access."
+                    )
+            raise
+        except requests.RequestException as e:
+            raise RuntimeError(f"Download request failed: {e}") from e
 
         if not file_exists_and_nonempty(temp_path):
             raise RuntimeError("Downloaded file is empty or incomplete")
 
         move_atomic(temp_path, target_path)
         self._update_asset(job_id, asset_index, status="installed")
+        debug_log(f"direct download installed asset={asset.get('name','')} path={target_path}")
         return {"status": "installed", "path": str(target_path)}
 
     def _check_cancel(self, job_id: str) -> None:

@@ -526,6 +526,25 @@ function buildDownloadProgressText(asset) {
     return "";
 }
 
+function isHfAuthErrorMessage(message) {
+    const text = String(message || "").toLowerCase();
+    return (
+        text.includes("hugging face authentication required") ||
+        text.includes("access not granted") ||
+        text.includes("set hf_token") ||
+        text.includes("hf auth login") ||
+        text.includes("unauthorized") ||
+        text.includes("gated")
+    );
+}
+
+function normalizeInstallErrorMessage(message) {
+    if (isHfAuthErrorMessage(message)) {
+        return "Hugging Face authentication required or access not granted for this model. Set HF_TOKEN or login with 'hf auth login'.";
+    }
+    return String(message || "Unknown error");
+}
+
 function getResolverText(asset) {
     const status = asset?.resolver_status || "";
     if (asset?.resolved === true) return "resolved";
@@ -969,6 +988,8 @@ function renderAssets(assets) {
         const percent = getAssetPercent(asset);
         if (asset.status === "downloading" && Number(asset.total_bytes || 0) > 0) {
             statusText = `${asset.status} (${percent.toFixed(1)}%)`;
+        } else if (asset.status === "error" && asset.error) {
+            statusText = normalizeInstallErrorMessage(asset.error);
         }
 
         const sizeText = Number(asset.total_bytes || 0) > 0
@@ -1079,6 +1100,20 @@ function getSelectedAssets() {
     return selected;
 }
 
+function findCurrentAssetError(job) {
+    const assets = job?.assets || [];
+    if (!Array.isArray(assets) || !assets.length) return "";
+
+    const current = job?.current_asset || "";
+    if (current) {
+        const match = assets.find((a) => a.name === current && a.status === "error" && a.error);
+        if (match) return normalizeInstallErrorMessage(match.error);
+    }
+
+    const lastError = [...assets].reverse().find((a) => a.status === "error" && a.error);
+    return lastError ? normalizeInstallErrorMessage(lastError.error) : "";
+}
+
 async function pollJob(jobId) {
     setCurrentJobId(jobId);
 
@@ -1101,9 +1136,11 @@ async function pollJob(jobId) {
         const currentAsset = (job.assets || []).find((a) => a.name === job.current_asset);
         const current = job.current_asset ? ` | Current: ${job.current_asset}` : "";
         const downloadProgress = buildDownloadProgressText(currentAsset);
+        const currentError = findCurrentAssetError(job);
+        const errorText = currentError ? ` | Error: ${currentError}` : "";
 
         setLog(
-            `Job ${job.status} | Progress: ${job.completed_assets}/${job.total_assets}${current}${downloadProgress}`
+            `Job ${job.status} | Progress: ${job.completed_assets}/${job.total_assets}${current}${downloadProgress}${errorText}`
         );
 
         if (
@@ -1118,6 +1155,17 @@ async function pollJob(jobId) {
     }
 
     setCurrentJobId("");
+
+    const finalResult = await apiJson(`/model-installer/status?job_id=${encodeURIComponent(jobId)}`);
+    const finalJob = finalResult.job;
+    const finalError = findCurrentAssetError(finalJob);
+
+    if (finalJob?.status === "completed_with_errors" && finalError) {
+        setLog(`Job completed_with_errors | ${finalError}`);
+    } else if (finalJob?.status === "cancelled") {
+        setLog("Job cancelled.");
+    }
+
     await scanWorkflow();
 }
 
@@ -1145,7 +1193,7 @@ async function startInstall(assets, label = "selected") {
         await pollJob(result.job_id);
     } catch (error) {
         console.error(error);
-        setLog(`Download error: ${error.message}`);
+        setLog(`Download error: ${normalizeInstallErrorMessage(error.message)}`);
         setCurrentJobId("");
         openPanel();
     }
