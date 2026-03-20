@@ -40,6 +40,24 @@ DIRECTORY_ALIASES = {
 }
 
 
+INFERRED_LOADER_MAP = {
+    "CheckpointLoaderSimple": "checkpoints",
+    "CheckpointLoader": "checkpoints",
+    "LoraLoader": "loras",
+    "LoraLoaderModelOnly": "loras",
+    "VAELoader": "vae",
+    "CLIPLoader": "text_encoders",
+    "DualCLIPLoader": "text_encoders",
+    "TripleCLIPLoader": "text_encoders",
+    "UNETLoader": "diffusion_models",
+    "DiffusionModelLoader": "diffusion_models",
+    "ControlNetLoader": "controlnet",
+    "UpscaleModelLoader": "upscale_models",
+    "StyleModelLoader": "style_models",
+    "CLIPVisionLoader": "clip_vision",
+}
+
+
 def normalize_directory(directory: str) -> str:
     if not directory:
         return ""
@@ -59,6 +77,17 @@ def filename_from_url(url: str) -> str:
 
 def asset_key(directory: str, name: str) -> str:
     return f"{directory}/{name}".lower()
+
+
+def asset_priority(asset: dict) -> int:
+    source = asset.get("source", "")
+    if source == "properties.models":
+        return 100
+    if source == "markdown":
+        return 80
+    if source == "inferred_loader":
+        return 10
+    return 0
 
 
 def parse_properties_models(workflow: dict) -> list[dict]:
@@ -217,6 +246,48 @@ def parse_markdown_assets(workflow: dict) -> list[dict]:
     return assets
 
 
+def parse_loader_inferred_assets(workflow: dict) -> list[dict]:
+    assets = []
+    nodes = workflow.get("nodes", []) or []
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        node_type = str(node.get("type", "") or "")
+        directory = INFERRED_LOADER_MAP.get(node_type, "")
+        if not directory:
+            continue
+
+        widgets_values = node.get("widgets_values", [])
+        if not isinstance(widgets_values, list) or not widgets_values:
+            continue
+
+        raw_value = widgets_values[0]
+        if not isinstance(raw_value, str):
+            continue
+
+        name = sanitize_filename(raw_value.strip())
+        if not name:
+            continue
+
+        assets.append(
+            {
+                "name": name,
+                "url": "",
+                "directory": directory,
+                "source": "inferred_loader",
+                "node_id": node.get("id"),
+                "node_type": node_type,
+                "title": node.get("title", ""),
+                "resolved": False,
+                "resolver_status": "needs_resolution",
+            }
+        )
+
+    return assets
+
+
 def dedupe_assets(assets: list[dict]) -> list[dict]:
     deduped = {}
     for asset in assets:
@@ -231,17 +302,22 @@ def dedupe_assets(assets: list[dict]) -> list[dict]:
         key = asset_key(directory, name)
         if key not in deduped:
             deduped[key] = asset
+            continue
+
+        if asset_priority(asset) > asset_priority(deduped[key]):
+            deduped[key] = asset
 
     return list(deduped.values())
 
 
-def collect_assets(workflow: dict) -> list[dict]:
+def collect_assets(workflow: dict, include_inferred: bool = True) -> list[dict]:
     if not isinstance(workflow, dict):
         return []
 
     primary = parse_properties_models(workflow)
     fallback = parse_markdown_assets(workflow)
+    inferred = parse_loader_inferred_assets(workflow) if include_inferred else []
 
-    merged = dedupe_assets(primary + fallback)
+    merged = dedupe_assets(primary + fallback + inferred)
     merged.sort(key=lambda x: (x.get("directory", ""), x.get("name", "").lower()))
     return merged

@@ -5,6 +5,7 @@ const PANEL_ID = "cmi-panel";
 const STYLE_ID = "cmi-inline-style";
 const TOP_GROUP_ID = "cmi-top-group";
 const PLUGIN_NAME = "ComfyUI Model Installer";
+const RESOLVE_MODAL_ID = "cmi-resolve-modal";
 
 function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -38,9 +39,9 @@ function ensureInlineStyles() {
             position: fixed;
             top: 72px;
             right: 16px;
-            width: 1180px;
+            width: 1320px;
             max-width: calc(100vw - 32px);
-            height: 80vh;
+            height: 84vh;
             background: #151515;
             color: #f2f2f2;
             border: 1px solid #333;
@@ -91,7 +92,9 @@ function ensureInlineStyles() {
         }
 
         .cmi-close,
-        .cmi-update-plugin-btn {
+        .cmi-update-plugin-btn,
+        .cmi-small-btn,
+        .cmi-resolve-btn {
             border: 1px solid #444;
             background: #232323;
             color: #fff;
@@ -111,7 +114,15 @@ function ensureInlineStyles() {
             font-weight: 600;
         }
 
-        .cmi-update-plugin-btn:disabled {
+        .cmi-small-btn,
+        .cmi-resolve-btn {
+            padding: 6px 10px;
+            font-size: 11px;
+        }
+
+        .cmi-update-plugin-btn:disabled,
+        .cmi-small-btn:disabled,
+        .cmi-resolve-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
         }
@@ -137,6 +148,15 @@ function ensureInlineStyles() {
         .cmi-toolbar button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+        }
+
+        .cmi-toolbar .cmi-primary {
+            background: #1f3b5a;
+            border-color: #31567f;
+        }
+
+        .cmi-toolbar .cmi-primary:hover {
+            background: #27486d;
         }
 
         .cmi-toolbar .cmi-danger {
@@ -192,28 +212,64 @@ function ensureInlineStyles() {
         .cmi-table td:nth-child(1) { width: 36px; }
 
         .cmi-table th:nth-child(2),
-        .cmi-table td:nth-child(2) { width: 250px; word-break: break-word; }
+        .cmi-table td:nth-child(2) { width: 220px; word-break: break-word; }
 
         .cmi-table th:nth-child(3),
-        .cmi-table td:nth-child(3) { width: 110px; }
+        .cmi-table td:nth-child(3) { width: 105px; }
 
         .cmi-table th:nth-child(4),
-        .cmi-table td:nth-child(4) { width: 100px; }
+        .cmi-table td:nth-child(4) { width: 95px; }
 
         .cmi-table th:nth-child(5),
-        .cmi-table td:nth-child(5) { width: 130px; }
+        .cmi-table td:nth-child(5) { width: 110px; }
 
         .cmi-table th:nth-child(6),
-        .cmi-table td:nth-child(6) { width: 95px; }
+        .cmi-table td:nth-child(6) { width: 115px; }
 
         .cmi-table th:nth-child(7),
-        .cmi-table td:nth-child(7) { width: 115px; }
+        .cmi-table td:nth-child(7) { width: 90px; }
 
         .cmi-table th:nth-child(8),
-        .cmi-table td:nth-child(8) { width: 180px; }
+        .cmi-table td:nth-child(8) { width: 115px; }
 
         .cmi-table th:nth-child(9),
-        .cmi-table td:nth-child(9) { width: auto; word-break: break-word; }
+        .cmi-table td:nth-child(9) { width: 160px; }
+
+        .cmi-table th:nth-child(10),
+        .cmi-table td:nth-child(10) { width: 90px; }
+
+        .cmi-table th:nth-child(11),
+        .cmi-table td:nth-child(11) { width: auto; word-break: break-word; }
+
+        .cmi-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            line-height: 1.4;
+            border: 1px solid #3a3a3a;
+            background: #1d1d1d;
+            color: #ddd;
+            white-space: nowrap;
+        }
+
+        .cmi-badge-ok {
+            background: #16351f;
+            border-color: #2b6a3e;
+            color: #b7f3c8;
+        }
+
+        .cmi-badge-warn {
+            background: #3b2f16;
+            border-color: #7b6130;
+            color: #f6de9c;
+        }
+
+        .cmi-badge-bad {
+            background: #3d1919;
+            border-color: #7d2c2c;
+            color: #ffb3b3;
+        }
 
         .cmi-progress-wrap {
             display: flex;
@@ -250,6 +306,111 @@ function ensureInlineStyles() {
             min-height: 44px;
             white-space: pre-wrap;
             word-break: break-word;
+        }
+
+        .cmi-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 100001;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .cmi-modal-overlay.open {
+            display: flex;
+        }
+
+        .cmi-modal {
+            width: 980px;
+            max-width: calc(100vw - 48px);
+            max-height: 80vh;
+            background: #171717;
+            border: 1px solid #333;
+            border-radius: 14px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0,0,0,.45);
+        }
+
+        .cmi-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #2b2b2b;
+        }
+
+        .cmi-modal-title-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .cmi-modal-title {
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .cmi-modal-subtitle {
+            font-size: 12px;
+            color: #9aa4b2;
+            word-break: break-word;
+        }
+
+        .cmi-modal-body {
+            overflow: auto;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .cmi-candidate-card {
+            border: 1px solid #2f2f2f;
+            border-radius: 10px;
+            background: #1b1b1b;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .cmi-candidate-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .cmi-candidate-title {
+            font-size: 13px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .cmi-candidate-meta {
+            font-size: 12px;
+            color: #cfcfcf;
+            word-break: break-word;
+        }
+
+        .cmi-candidate-reasons {
+            font-size: 11px;
+            color: #9aa4b2;
+        }
+
+        .cmi-modal-footer {
+            padding: 12px 16px;
+            border-top: 1px solid #2b2b2b;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
         }
 
         #cmi-fallback-button {
@@ -312,7 +473,8 @@ function formatBytes(bytes) {
         i++;
     }
 
-    return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`;
+    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(decimals)} ${units[i]}`;
 }
 
 function shortCommit(hash) {
@@ -346,6 +508,63 @@ function getDownloadedText(asset) {
     return "-";
 }
 
+function buildDownloadProgressText(asset) {
+    if (!asset) return "";
+
+    const downloaded = Number(asset.downloaded_bytes || 0);
+    const total = Number(asset.total_bytes || 0);
+
+    if (total > 0) {
+        const percent = ((downloaded / total) * 100).toFixed(1);
+        return ` | Downloading ${formatBytes(downloaded)} of ${formatBytes(total)} (${percent}%)`;
+    }
+
+    if (downloaded > 0) {
+        return ` | Downloading ${formatBytes(downloaded)}`;
+    }
+
+    return "";
+}
+
+function getResolverText(asset) {
+    const status = asset?.resolver_status || "";
+    if (asset?.resolved === true) return "resolved";
+    if (status === "ambiguous") return "ambiguous";
+    if (status === "unresolved") return "unresolved";
+    if (status === "needs_resolution") return "needs resolution";
+    if (status) return status;
+    return asset?.resolved ? "resolved" : "-";
+}
+
+function getResolverBadgeClass(asset) {
+    const status = asset?.resolver_status || "";
+    if (asset?.resolved === true) return "cmi-badge cmi-badge-ok";
+    if (status === "ambiguous") return "cmi-badge cmi-badge-warn";
+    if (status === "unresolved" || status === "needs_resolution") return "cmi-badge cmi-badge-bad";
+    return "cmi-badge";
+}
+
+function canInstallAsset(asset) {
+    return (
+        asset &&
+        asset.status === "missing" &&
+        asset.resolved === true &&
+        typeof asset.url === "string" &&
+        asset.url.trim() !== "" &&
+        typeof asset.directory === "string" &&
+        asset.directory.trim() !== ""
+    );
+}
+
+function canResolveAsset(asset) {
+    return !!asset && (
+        asset.resolver_status === "ambiguous" ||
+        asset.resolver_status === "unresolved" ||
+        asset.resolver_status === "needs_resolution" ||
+        (!asset.resolved && !asset.url)
+    );
+}
+
 function setVersionText(text) {
     const node = document.getElementById("cmi-version");
     if (node) node.textContent = text;
@@ -376,6 +595,21 @@ function updateCancelButtonState() {
     btn.disabled = !getCurrentJobId();
 }
 
+function replaceStoredAsset(updatedAsset) {
+    const assets = getStoredAssets();
+    const replaced = assets.map((a) => {
+        if (a.name === updatedAsset.name && a.directory === updatedAsset.directory) {
+            return { ...a, ...updatedAsset };
+        }
+        if (a.node_id === updatedAsset.node_id && a.node_type === updatedAsset.node_type) {
+            return { ...a, ...updatedAsset };
+        }
+        return a;
+    });
+    setStoredAssets(replaced);
+    renderAssets(replaced);
+}
+
 async function refreshPluginVersionInfo() {
     try {
         const result = await apiJson("/model-installer/version");
@@ -385,6 +619,165 @@ async function refreshPluginVersionInfo() {
         setVersionText(`v${version}${commit}${gitHint}`);
     } catch {
         setVersionText("version unavailable");
+    }
+}
+
+function makeResolveModal() {
+    let overlay = document.getElementById(RESOLVE_MODAL_ID);
+    if (overlay) return overlay;
+
+    overlay = el("div", { id: RESOLVE_MODAL_ID, class: "cmi-modal-overlay" });
+    const modal = el("div", { class: "cmi-modal" });
+
+    const header = el("div", { class: "cmi-modal-header" }, [
+        el("div", { class: "cmi-modal-title-wrap" }, [
+            el("div", { id: "cmi-modal-title", class: "cmi-modal-title", text: "Resolve Candidates" }),
+            el("div", { id: "cmi-modal-subtitle", class: "cmi-modal-subtitle", text: "" }),
+        ]),
+        el("button", { id: "cmi-modal-close", class: "cmi-close", type: "button", text: "×" }),
+    ]);
+
+    const body = el("div", { id: "cmi-modal-body", class: "cmi-modal-body" });
+    const footer = el("div", { class: "cmi-modal-footer" }, [
+        el("button", { id: "cmi-refresh-candidates", class: "cmi-small-btn", type: "button", text: "Refresh Candidates" }),
+        el("button", { id: "cmi-modal-done", class: "cmi-small-btn", type: "button", text: "Close" }),
+    ]);
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    overlay.querySelector("#cmi-modal-close")?.addEventListener("click", closeResolveModal);
+    overlay.querySelector("#cmi-modal-done")?.addEventListener("click", closeResolveModal);
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closeResolveModal();
+    });
+
+    return overlay;
+}
+
+function openResolveModal() {
+    makeResolveModal().classList.add("open");
+}
+
+function closeResolveModal() {
+    const modal = document.getElementById(RESOLVE_MODAL_ID);
+    if (modal) modal.classList.remove("open");
+}
+
+function getActiveResolveAsset() {
+    return window.__CMI_ACTIVE_RESOLVE_ASSET__ || null;
+}
+
+function setActiveResolveAsset(asset) {
+    window.__CMI_ACTIVE_RESOLVE_ASSET__ = asset || null;
+}
+
+function renderResolveCandidates(asset, candidates) {
+    const modal = makeResolveModal();
+    const title = modal.querySelector("#cmi-modal-title");
+    const subtitle = modal.querySelector("#cmi-modal-subtitle");
+    const body = modal.querySelector("#cmi-modal-body");
+    const refreshBtn = modal.querySelector("#cmi-refresh-candidates");
+
+    if (title) title.textContent = "Resolve Candidates";
+    if (subtitle) subtitle.textContent = `${asset.name || "-"} | ${asset.directory || "-"} | ${asset.node_type || "-"}`;
+    if (body) body.innerHTML = "";
+
+    setActiveResolveAsset(asset);
+
+    refreshBtn.onclick = async () => {
+        await openResolveCandidates(asset, true);
+    };
+
+    if (!candidates || !candidates.length) {
+        body.appendChild(el("div", {
+            class: "cmi-candidate-card",
+            text: "No candidates found for this asset.",
+        }));
+        openResolveModal();
+        return;
+    }
+
+    for (const candidate of candidates) {
+        const score = Number(candidate.score || 0);
+        const reasons = Array.isArray(candidate.reasons) ? candidate.reasons.join(", ") : "";
+
+        const card = el("div", { class: "cmi-candidate-card" }, [
+            el("div", { class: "cmi-candidate-top" }, [
+                el("div", { class: "cmi-candidate-title", text: `${candidate.repo_id || "-"}  →  ${candidate.filename || "-"}` }),
+                el("span", {
+                    class: score >= 95 ? "cmi-badge cmi-badge-ok" : "cmi-badge cmi-badge-warn",
+                    text: `score ${score}`,
+                }),
+            ]),
+            el("div", { class: "cmi-candidate-meta", text: `revision: ${candidate.revision || "main"}` }),
+            el("div", { class: "cmi-candidate-meta", text: `url: ${candidate.url || "-"}` }),
+            el("div", { class: "cmi-candidate-reasons", text: reasons || "No reasons available" }),
+            el("div", {}, [
+                el("button", {
+                    class: "cmi-small-btn cmi-primary",
+                    type: "button",
+                    text: "Use this",
+                }),
+            ]),
+        ]);
+
+        const useButton = card.querySelector("button");
+        useButton.addEventListener("click", async () => {
+            await confirmResolveCandidate(asset, candidate, useButton);
+        });
+
+        body.appendChild(card);
+    }
+
+    openResolveModal();
+}
+
+async function openResolveCandidates(asset, forceRefresh = false) {
+    try {
+        setLog(`Loading candidates for ${asset.name}...`);
+
+        let candidates = Array.isArray(asset.candidates) ? asset.candidates : [];
+        if (forceRefresh || !candidates.length) {
+            const result = await apiJson("/model-installer/resolve/candidates", {
+                method: "POST",
+                body: JSON.stringify({ asset }),
+            });
+            candidates = result.candidates || [];
+        }
+
+        renderResolveCandidates(asset, candidates);
+        setLog(`Loaded ${candidates.length} candidate${candidates.length === 1 ? "" : "s"} for ${asset.name}.`);
+    } catch (error) {
+        console.error(error);
+        setLog(`Resolve candidates error: ${error.message}`);
+    }
+}
+
+async function confirmResolveCandidate(asset, candidate, buttonEl = null) {
+    try {
+        if (buttonEl) buttonEl.disabled = true;
+        setLog(`Confirming candidate for ${asset.name}...`);
+
+        const result = await apiJson("/model-installer/resolve/confirm", {
+            method: "POST",
+            body: JSON.stringify({
+                asset,
+                candidate,
+            }),
+        });
+
+        replaceStoredAsset(result.asset);
+        closeResolveModal();
+        setLog(`Resolved ${asset.name} using ${candidate.repo_id}/${candidate.filename}.`);
+    } catch (error) {
+        console.error(error);
+        setLog(`Resolve confirm error: ${error.message}`);
+    } finally {
+        if (buttonEl) buttonEl.disabled = false;
     }
 }
 
@@ -412,6 +805,7 @@ function makePanel() {
 
     const toolbar = el("div", { class: "cmi-toolbar" }, [
         el("button", { id: "cmi-scan", type: "button", text: "Scan Workflow" }),
+        el("button", { id: "cmi-install-selected", type: "button", text: "Install Selected", class: "cmi-primary" }),
         el("button", { id: "cmi-install-missing", type: "button", text: "Install Missing" }),
         el("button", { id: "cmi-select-missing", type: "button", text: "Select All Missing" }),
         el("button", { id: "cmi-refresh", type: "button", text: "Refresh" }),
@@ -445,10 +839,12 @@ function makePanel() {
                 <th>Name</th>
                 <th>Type</th>
                 <th>Source</th>
+                <th>Resolver</th>
                 <th>Status</th>
                 <th>Size</th>
                 <th>Downloaded</th>
                 <th>Progress</th>
+                <th>Resolve</th>
                 <th>Target</th>
             </tr>
         </thead>
@@ -462,12 +858,14 @@ function makePanel() {
     panel.appendChild(tableWrap);
     panel.appendChild(log);
     document.body.appendChild(panel);
+    makeResolveModal();
 
     header.querySelector(".cmi-close")?.addEventListener("click", () => {
         panel.classList.remove("open");
     });
 
     panel.querySelector("#cmi-scan")?.addEventListener("click", scanWorkflow);
+    panel.querySelector("#cmi-install-selected")?.addEventListener("click", installSelected);
     panel.querySelector("#cmi-install-missing")?.addEventListener("click", installMissing);
     panel.querySelector("#cmi-select-missing")?.addEventListener("click", selectAllMissing);
     panel.querySelector("#cmi-refresh")?.addEventListener("click", async () => {
@@ -520,7 +918,7 @@ function selectAllMissing() {
 
         try {
             const asset = JSON.parse(row.dataset.asset);
-            const shouldSelect = asset.status === "missing";
+            const shouldSelect = canInstallAsset(asset);
             checkbox.checked = shouldSelect;
             if (shouldSelect) count++;
         } catch {
@@ -528,7 +926,7 @@ function selectAllMissing() {
         }
     }
 
-    setLog(`Selected ${count} missing asset${count === 1 ? "" : "s"}.`);
+    setLog(`Selected ${count} installable missing asset${count === 1 ? "" : "s"}.`);
 }
 
 function renderAssets(assets) {
@@ -542,10 +940,17 @@ function renderAssets(assets) {
     let installed = 0;
     let missing = 0;
     let visible = 0;
+    let resolved = 0;
+    let ambiguous = 0;
+    let unresolved = 0;
 
     for (const asset of assets) {
         if (asset.status === "installed" || asset.status === "already_installed") installed++;
         if (asset.status === "missing") missing++;
+
+        if (asset.resolved === true) resolved++;
+        else if (asset.resolver_status === "ambiguous") ambiguous++;
+        else if (asset.resolver_status === "unresolved" || asset.resolver_status === "needs_resolution") unresolved++;
 
         if (onlyMissing && asset.status !== "missing" && asset.status !== "downloading") {
             continue;
@@ -556,8 +961,9 @@ function renderAssets(assets) {
         const checkbox = el("input", {
             type: "checkbox",
             class: "cmi-row-check",
+            disabled: !canInstallAsset(asset),
         });
-        checkbox.checked = asset.status === "missing";
+        checkbox.checked = canInstallAsset(asset);
 
         let statusText = asset.status || "";
         const percent = getAssetPercent(asset);
@@ -586,15 +992,37 @@ function renderAssets(assets) {
             }),
         ]);
 
+        const resolverBadge = el("span", {
+            class: getResolverBadgeClass(asset),
+            text: getResolverText(asset),
+        });
+
+        const resolveCell = el("td");
+        if (canResolveAsset(asset)) {
+            const btn = el("button", {
+                class: "cmi-resolve-btn",
+                type: "button",
+                text: "Resolve",
+            });
+            btn.addEventListener("click", async () => {
+                await openResolveCandidates(asset, false);
+            });
+            resolveCell.appendChild(btn);
+        } else {
+            resolveCell.textContent = "-";
+        }
+
         const tr = el("tr", {}, [
             el("td", {}, [checkbox]),
             el("td", { text: asset.name || "" }),
             el("td", { text: asset.directory || "" }),
             el("td", { text: asset.source || "" }),
+            el("td", {}, [resolverBadge]),
             el("td", { text: statusText }),
             el("td", { text: sizeText }),
             el("td", { text: downloadedText }),
             el("td", {}, [progressWrap]),
+            resolveCell,
             el("td", { title: asset.target_path || "", text: asset.target_path || "" }),
         ]);
 
@@ -603,7 +1031,9 @@ function renderAssets(assets) {
     }
 
     const filterText = onlyMissing ? ` | Visible: ${visible} (Only Missing)` : ` | Visible: ${visible}`;
-    setSummary(`Required: ${assets.length} | Installed: ${installed} | Missing: ${missing}${filterText}`);
+    setSummary(
+        `Required: ${assets.length} | Installed: ${installed} | Missing: ${missing} | Resolved: ${resolved} | Ambiguous: ${ambiguous} | Unresolved: ${unresolved}${filterText}`
+    );
     updateCancelButtonState();
 }
 
@@ -612,14 +1042,16 @@ async function scanWorkflow() {
         setLog("Scanning workflow...");
         const workflow = getWorkflowObject();
 
-        const result = await apiJson("/model-installer/scan", {
+        const result = await apiJson("/model-installer/scan-resolve", {
             method: "POST",
             body: JSON.stringify({ workflow }),
         });
 
         setStoredAssets(result.assets || []);
         renderAssets(result.assets || []);
-        setLog(`Scan complete. Found ${result.count} assets.`);
+        setLog(
+            `Scan complete. Found ${result.count} assets | resolved: ${result.resolved_count} | ambiguous: ${result.ambiguous_count} | unresolved: ${result.unresolved_count}`
+        );
         openPanel();
     } catch (error) {
         console.error(error);
@@ -667,22 +1099,12 @@ async function pollJob(jobId) {
         renderAssets(updatedAssets);
 
         const currentAsset = (job.assets || []).find((a) => a.name === job.current_asset);
-
-        let extra = "";
-        if (currentAsset) {
-            const downloaded = Number(currentAsset.downloaded_bytes || 0);
-            const total = Number(currentAsset.total_bytes || 0);
-
-            if (total > 0) {
-                const percent = ((downloaded / total) * 100).toFixed(1);
-                extra = ` | Downloaded: ${formatBytes(downloaded)} / ${formatBytes(total)} (${percent}%)`;
-            } else if (downloaded > 0) {
-                extra = ` | Downloaded: ${formatBytes(downloaded)}`;
-            }
-        }
-
         const current = job.current_asset ? ` | Current: ${job.current_asset}` : "";
-        setLog(`Job ${job.status} | Progress: ${job.completed_assets}/${job.total_assets}${current}${extra}`);
+        const downloadProgress = buildDownloadProgressText(currentAsset);
+
+        setLog(
+            `Job ${job.status} | Progress: ${job.completed_assets}/${job.total_assets}${current}${downloadProgress}`
+        );
 
         if (
             job.status === "completed" ||
@@ -699,23 +1121,23 @@ async function pollJob(jobId) {
     await scanWorkflow();
 }
 
-async function installMissing() {
+async function startInstall(assets, label = "selected") {
     try {
-        const selected = getSelectedAssets().filter((a) => a.status === "missing");
+        const installable = (assets || []).filter(canInstallAsset);
 
-        if (!selected.length) {
-            setLog("Nothing selected or no missing assets selected.");
+        if (!installable.length) {
+            setLog(`No installable ${label} assets found.`);
             openPanel();
             return;
         }
 
-        setLog(`Starting download for ${selected.length} assets...`);
+        setLog(`Starting download for ${installable.length} ${label} asset${installable.length === 1 ? "" : "s"}...`);
         openPanel();
 
         const result = await apiJson("/model-installer/download", {
             method: "POST",
             body: JSON.stringify({
-                assets: selected,
+                assets: installable,
                 overwrite: false,
             }),
         });
@@ -727,6 +1149,16 @@ async function installMissing() {
         setCurrentJobId("");
         openPanel();
     }
+}
+
+async function installSelected() {
+    const selected = getSelectedAssets();
+    await startInstall(selected, "selected");
+}
+
+async function installMissing() {
+    const assets = getStoredAssets().filter(canInstallAsset);
+    await startInstall(assets, "missing");
 }
 
 async function cancelCurrentJob() {
@@ -839,16 +1271,13 @@ async function installTopBarButton() {
             tooltip: "Scan current workflow"
         }).element;
 
-        const installButton = new ComfyButton({
+        const installSelectedButton = new ComfyButton({
             icon: "tray-arrow-down",
             action: async () => {
                 openPanel();
-                if (!getStoredAssets().length) {
-                    await scanWorkflow();
-                }
-                await installMissing();
+                await installSelected();
             },
-            tooltip: "Install missing models"
+            tooltip: "Install selected models"
         }).element;
 
         const updateButton = new ComfyButton({
@@ -863,7 +1292,7 @@ async function installTopBarButton() {
         const group = new ComfyButtonGroup(
             mainButton,
             scanButton,
-            installButton,
+            installSelectedButton,
             updateButton
         );
 
@@ -917,6 +1346,14 @@ app.registerExtension({
             id: "Comfy.ModelInstaller.Scan",
             label: "Scan Current Workflow",
             function: async () => await openAndScanInstaller(),
+        },
+        {
+            id: "Comfy.ModelInstaller.InstallSelected",
+            label: "Install Selected Models",
+            function: async () => {
+                openPanel();
+                await installSelected();
+            },
         },
         {
             id: "Comfy.ModelInstaller.InstallMissing",

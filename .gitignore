@@ -69,3 +69,6 @@ ehthumbs.db
 # Optional local config
 .env
 .env.*
+
+# cache
+resolver_cache.json

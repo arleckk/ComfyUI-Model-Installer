@@ -9,6 +9,7 @@ except Exception:
     PromptServer = None
 
 from .parser import collect_assets
+from .resolver import resolve_assets, list_hf_candidates, confirm_candidate
 from .installer import install_manager, COMFY_ROOT
 from .models_map import ALLOWED_MODEL_DIRS
 from .utils import file_exists_and_nonempty
@@ -21,19 +22,42 @@ def _json_request_data(request_data: dict) -> dict:
     return request_data if isinstance(request_data, dict) else {}
 
 
+def _find_local_target_path(asset: dict) -> Path | None:
+    directory = asset.get("directory", "")
+    rel_dir = ALLOWED_MODEL_DIRS.get(directory)
+    if rel_dir is None:
+        return None
+
+    target_dir = COMFY_ROOT / rel_dir
+    name = asset.get("name", "")
+
+    exact = target_dir / name
+    if file_exists_and_nonempty(exact):
+        return exact
+
+    if not target_dir.exists():
+        return exact
+
+    expected_stem = Path(name).stem.lower() if "." in name else name.lower()
+    for entry in target_dir.iterdir():
+        if entry.is_file() and entry.stem.lower() == expected_stem:
+            return entry
+
+    return exact
+
+
 def _annotate_installed_status(assets: list[dict]) -> list[dict]:
     annotated = []
     for asset in assets:
-        rel_dir = ALLOWED_MODEL_DIRS.get(asset["directory"])
-        if rel_dir is None:
+        target_path = _find_local_target_path(asset)
+        if target_path is None:
             continue
 
-        target_path = COMFY_ROOT / rel_dir / asset["name"]
         status = "installed" if file_exists_and_nonempty(target_path) else "missing"
         annotated.append(
             {
                 **asset,
-                "status": status,
+                "status": status if asset.get("status") in (None, "", "missing", "installed", "already_installed") else asset.get("status"),
                 "target_path": str(target_path),
             }
         )
@@ -215,7 +239,7 @@ def register_routes():
                 )
 
             current_commit = _get_current_commit()
-            remote_commit = _get_remote_commit("master")
+            remote_commit = _get_remote_commit("main")
 
             if current_commit and remote_commit and current_commit == remote_commit:
                 return web.json_response(
@@ -271,7 +295,7 @@ def register_routes():
             data = _json_request_data(data)
             workflow = data.get("workflow", {}) or {}
 
-            assets = collect_assets(workflow)
+            assets = collect_assets(workflow, include_inferred=True)
             assets = _annotate_installed_status(assets)
 
             return web.json_response(
@@ -291,6 +315,107 @@ def register_routes():
                     "error": str(e),
                     "traceback": tb,
                     "where": "/model-installer/scan",
+                },
+                status=400,
+            )
+
+    @routes.post("/model-installer/scan-resolve")
+    async def model_installer_scan_resolve(request):
+        try:
+            data = await request.json()
+            data = _json_request_data(data)
+            workflow = data.get("workflow", {}) or {}
+
+            assets = collect_assets(workflow, include_inferred=True)
+            assets = resolve_assets(assets)
+            assets = _annotate_installed_status(assets)
+
+            resolved_count = len([a for a in assets if a.get("resolved")])
+            ambiguous_count = len([a for a in assets if a.get("resolver_status") == "ambiguous"])
+            unresolved_count = len([a for a in assets if a.get("resolver_status") == "unresolved"])
+
+            return web.json_response(
+                {
+                    "ok": True,
+                    "count": len(assets),
+                    "resolved_count": resolved_count,
+                    "ambiguous_count": ambiguous_count,
+                    "unresolved_count": unresolved_count,
+                    "assets": assets,
+                }
+            )
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("\n[ComfyUI Model Installer] /model-installer/scan-resolve ERROR")
+            print(tb)
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "traceback": tb,
+                    "where": "/model-installer/scan-resolve",
+                },
+                status=400,
+            )
+
+    @routes.post("/model-installer/resolve/candidates")
+    async def model_installer_resolve_candidates(request):
+        try:
+            data = await request.json()
+            data = _json_request_data(data)
+            asset = data.get("asset", {}) or {}
+
+            candidates = list_hf_candidates(asset)
+
+            return web.json_response(
+                {
+                    "ok": True,
+                    "asset": asset,
+                    "candidate_count": len(candidates),
+                    "candidates": candidates,
+                }
+            )
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("\n[ComfyUI Model Installer] /model-installer/resolve/candidates ERROR")
+            print(tb)
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "traceback": tb,
+                    "where": "/model-installer/resolve/candidates",
+                },
+                status=400,
+            )
+
+    @routes.post("/model-installer/resolve/confirm")
+    async def model_installer_resolve_confirm(request):
+        try:
+            data = await request.json()
+            data = _json_request_data(data)
+            asset = data.get("asset", {}) or {}
+            candidate = data.get("candidate", {}) or {}
+
+            resolved_asset = confirm_candidate(asset, candidate)
+            annotated = _annotate_installed_status([resolved_asset])
+
+            return web.json_response(
+                {
+                    "ok": True,
+                    "asset": annotated[0] if annotated else resolved_asset,
+                }
+            )
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("\n[ComfyUI Model Installer] /model-installer/resolve/confirm ERROR")
+            print(tb)
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": str(e),
+                    "traceback": tb,
+                    "where": "/model-installer/resolve/confirm",
                 },
                 status=400,
             )
