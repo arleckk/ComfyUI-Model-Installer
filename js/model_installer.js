@@ -239,7 +239,13 @@ function ensureInlineStyles() {
         .cmi-table td:nth-child(10) { width: 90px; }
 
         .cmi-table th:nth-child(11),
-        .cmi-table td:nth-child(11) { width: auto; word-break: break-word; }
+        .cmi-table td:nth-child(11) { width: 220px; }
+
+        .cmi-table td:nth-child(11) {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
         .cmi-badge {
             display: inline-block;
@@ -971,7 +977,7 @@ function renderAssets(assets) {
         else if (asset.resolver_status === "ambiguous") ambiguous++;
         else if (asset.resolver_status === "unresolved" || asset.resolver_status === "needs_resolution") unresolved++;
 
-        if (onlyMissing && asset.status !== "missing" && asset.status !== "downloading") {
+        if (onlyMissing && !["missing", "pending", "downloading", "cancelling"].includes(asset.status)) {
             continue;
         }
 
@@ -1127,7 +1133,7 @@ async function pollJob(jobId) {
             const match = (job.assets || []).find(
                 (ja) => ja.name === a.name && ja.directory === a.directory
             );
-            return match ? { ...a, ...match } : a;
+            return match ? { ...a, ...match, target_path: match.target_path || a.target_path } : a;
         });
 
         setStoredAssets(updatedAssets);
