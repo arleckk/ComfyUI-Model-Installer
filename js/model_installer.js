@@ -477,6 +477,42 @@ function formatBytes(bytes) {
     return `${value.toFixed(decimals)} ${units[i]}`;
 }
 
+function getDownloadPhaseLabel(asset) {
+    return asset?.download_phase === "copying" ? "Copying" : "Downloading";
+}
+
+function getReceivedText(asset) {
+    const transferred = Number(asset?.transferred_bytes || 0);
+    return asset?.status === "downloading" && asset.download_phase !== "copying"
+        && Number.isFinite(transferred) && transferred > 0
+        ? `${formatBytes(transferred)} received`
+        : "";
+}
+
+function getProgressText(asset) {
+    const percentage = Number(asset?.total_bytes || 0) > 0 ? `${getAssetPercent(asset).toFixed(1)}%` : "-";
+    const received = getReceivedText(asset);
+    return received ? `${percentage} | ${received}` : percentage;
+}
+
+function getSpeedText(asset) {
+    const speed = Number(asset?.speed_bytes_per_second || 0);
+    return asset?.status === "downloading" && Number.isFinite(speed) && speed > 0
+        ? `${formatBytes(speed)}/s`
+        : "-";
+}
+
+function getEtaText(asset) {
+    const eta = asset?.eta_seconds;
+    if (asset?.status !== "downloading" || eta == null || !Number.isFinite(Number(eta)) || Number(eta) < 0) {
+        return "-";
+    }
+    const seconds = Math.ceil(Number(eta));
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
 function shortCommit(hash) {
     return hash ? hash.slice(0, 7) : "-";
 }
@@ -509,21 +545,26 @@ function getDownloadedText(asset) {
 }
 
 function buildDownloadProgressText(asset) {
-    if (!asset) return "";
+    if (!asset || asset.status !== "downloading") return "";
 
     const downloaded = Number(asset.downloaded_bytes || 0);
     const total = Number(asset.total_bytes || 0);
+    const phase = getDownloadPhaseLabel(asset);
+    const speed = getSpeedText(asset);
+    const eta = getEtaText(asset);
+    const received = getReceivedText(asset);
+    const metrics = `${received ? ` | ${received}` : ""}${speed !== "-" ? ` | ${speed}` : ""}${eta !== "-" ? ` | ETA ${eta}` : ""}`;
 
     if (total > 0) {
-        const percent = ((downloaded / total) * 100).toFixed(1);
-        return ` | Downloading ${formatBytes(downloaded)} of ${formatBytes(total)} (${percent}%)`;
+        const percent = getAssetPercent(asset).toFixed(1);
+        return ` | ${phase} ${formatBytes(downloaded)} of ${formatBytes(total)} (${percent}%)${metrics}`;
     }
 
     if (downloaded > 0) {
-        return ` | Downloading ${formatBytes(downloaded)}`;
+        return ` | ${phase} ${formatBytes(downloaded)}${metrics}`;
     }
 
-    return "";
+    return ` | Preparing download…${metrics}`;
 }
 
 function isHfAuthErrorMessage(message) {
@@ -605,13 +646,17 @@ function getCurrentJobId() {
 
 function setCurrentJobId(jobId) {
     window.__CMI_CURRENT_JOB_ID__ = jobId || "";
+    window.__CMI_CANCELLING_JOB_ID__ = "";
     updateCancelButtonState();
 }
 
 function updateCancelButtonState() {
     const btn = document.getElementById("cmi-cancel-job");
     if (!btn) return;
-    btn.disabled = !getCurrentJobId();
+    btn.disabled = !getCurrentJobId() || window.__CMI_CANCELLING_JOB_ID__ === getCurrentJobId();
+    btn.textContent = window.__CMI_CANCELLING_JOB_ID__ === getCurrentJobId() && getCurrentJobId()
+        ? "Cancelling…"
+        : "Cancel Current Job";
 }
 
 function replaceStoredAsset(updatedAsset) {
@@ -987,7 +1032,9 @@ function renderAssets(assets) {
         let statusText = asset.status || "";
         const percent = getAssetPercent(asset);
         if (asset.status === "downloading" && Number(asset.total_bytes || 0) > 0) {
-            statusText = `${asset.status} (${percent.toFixed(1)}%)`;
+            statusText = `${getDownloadPhaseLabel(asset)} (${percent.toFixed(1)}%)`;
+        } else if (asset.status === "downloading") {
+            statusText = getDownloadPhaseLabel(asset);
         } else if (asset.status === "error" && asset.error) {
             statusText = normalizeInstallErrorMessage(asset.error);
         }
@@ -1009,7 +1056,12 @@ function renderAssets(assets) {
             ]),
             el("div", {
                 class: "cmi-progress-text",
-                text: Number(asset.total_bytes || 0) > 0 ? `${percent.toFixed(1)}%` : "-",
+                text: getProgressText(asset),
+            }),
+            el("div", {
+                class: "cmi-progress-text",
+                title: "Average speed and estimated time remaining in the current phase",
+                text: asset.status === "downloading" ? `Speed: ${getSpeedText(asset)} | ETA: ${getEtaText(asset)}` : "",
             }),
         ]);
 
@@ -1122,6 +1174,9 @@ async function pollJob(jobId) {
     for (let i = 0; i < maxLoops; i++) {
         const result = await apiJson(`/model-installer/status?job_id=${encodeURIComponent(jobId)}`);
         const job = result.job;
+        if (job.cancel_requested || job.status === "cancelling") {
+            window.__CMI_CANCELLING_JOB_ID__ = jobId;
+        }
 
         const updatedAssets = getStoredAssets().map((a) => {
             const match = (job.assets || []).find(
@@ -1160,13 +1215,14 @@ async function pollJob(jobId) {
     const finalJob = finalResult.job;
     const finalError = findCurrentAssetError(finalJob);
 
+    await scanWorkflow();
+
     if (finalJob?.status === "completed_with_errors" && finalError) {
         setLog(`Job completed_with_errors | ${finalError}`);
     } else if (finalJob?.status === "cancelled") {
         setLog("Job cancelled.");
     }
 
-    await scanWorkflow();
 }
 
 async function startInstall(assets, label = "selected") {
@@ -1217,15 +1273,23 @@ async function cancelCurrentJob() {
     }
 
     try {
+        window.__CMI_CANCELLING_JOB_ID__ = jobId;
+        updateCancelButtonState();
         setLog(`Cancelling job ${jobId}...`);
         await apiJson("/model-installer/cancel", {
             method: "POST",
             body: JSON.stringify({ job_id: jobId }),
         });
-        setLog("Cancel requested. The current download will stop shortly.");
+        if (getCurrentJobId() === jobId) {
+            setLog("Cancel requested. The current download will stop shortly.");
+        }
     } catch (error) {
+        if (window.__CMI_CANCELLING_JOB_ID__ === jobId) {
+            window.__CMI_CANCELLING_JOB_ID__ = "";
+        }
+        updateCancelButtonState();
         console.error(error);
-        setLog(`Cancel error: ${error.message}`);
+        if (getCurrentJobId() === jobId) setLog(`Cancel error: ${error.message}`);
     }
 }
 
