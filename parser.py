@@ -184,6 +184,7 @@ def detect_directory_from_line(line_lower: str, current_pending: str = "") -> st
 def parse_markdown_assets(workflow: dict) -> list[dict]:
     assets = []
     nodes = workflow.get("nodes", []) or []
+    model_extensions = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx", ".sft", ".model")
 
     url_regex = re.compile(r"https?://[^\s)>\]]+")
     markdown_link_regex = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
@@ -210,10 +211,10 @@ def parse_markdown_assets(workflow: dict) -> list[dict]:
                 url = (match.group(2) or "").strip()
                 directory = pending_directory or ""
 
-                if not name:
+                if not name or not name.lower().endswith(model_extensions):
                     name = filename_from_url(url)
 
-                if name and url and directory:
+                if name and url and directory and name.lower().endswith(model_extensions):
                     assets.append(
                         {
                             "name": name,
@@ -230,7 +231,7 @@ def parse_markdown_assets(workflow: dict) -> list[dict]:
                 name = filename_from_url(url)
                 directory = detect_directory_from_line(line_lower, pending_directory)
 
-                if name and url and directory:
+                if name and url and directory and name.lower().endswith(model_extensions):
                     assets.append(
                         {
                             "name": name,
